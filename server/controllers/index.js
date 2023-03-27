@@ -1,17 +1,25 @@
 // pull in our models. This will automatically load the index.js from that folder
 const models = require('../models');
 
-// get the Cat model
+// get the Cat & Dog models
 const { Cat } = models;
+const { Dog } = models;
 
-// default fake data so that we have something to work with until we make a real Cat
-const defaultData = {
+// default fake data so that we have something to work with until we make a real animal
+const defaultCat = {
   name: 'unknown',
   bedsOwned: 0,
 };
 
-// object for us to keep track of the last Cat we made and dynamically update it sometimes
-let lastAdded = new Cat(defaultData);
+const defaultDog = {
+  name: 'unknown',
+  breed: 'unknown',
+  age: 0,
+};
+
+// object for us to keep track of the last Animal we made and dynamically update it sometimes
+let lastAddedCat = new Cat(defaultCat);
+let lastAddedDog = new Dog(defaultDog);
 
 // Function to handle rendering the index page.
 const hostIndex = (req, res) => {
@@ -19,7 +27,7 @@ const hostIndex = (req, res) => {
      We pass it a number of variables to populate the page.
   */
   res.render('index', {
-    currentName: lastAdded.name,
+    currentName: lastAddedCat.name,
     title: 'Home',
     pageName: 'Home Page',
   });
@@ -79,15 +87,29 @@ const hostPage2 = (req, res) => {
 };
 
 // Function to render the untemplated page3.
-const hostPage3 = (req, res) => {
+const hostPage3 = async (req, res) => {
   res.render('page3');
 };
 
+// Function for rendering the page4 template
+// Page4 has a loop that iterates over an array of dogs
+const hostPage4 = async (req, res) => {
+  try {
+    const docs = await Dog.find({}).lean().exec();
+
+    // Once we get back the docs array, we can send it to page4.
+    return res.render('page4', { dogs: docs });
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({ error: 'failed to find dogs' });
+  }
+};
+
 // Get name will return the name of the last added cat.
-const getName = (req, res) => res.json({ name: lastAdded.name });
+const getName = (req, res) => res.json({ name: lastAddedCat.name });
 
 // Function to create a new cat in the database
-const setName = async (req, res) => {
+const setCatName = async (req, res) => {
   /* If we look at views/page2.handlebars, the form has inputs for a firstname, lastname
      and a number of beds. When this POST request is sent to us, the bodyParser plugin
      we configured in app.js will store that information in req.body for us.
@@ -131,7 +153,7 @@ const setName = async (req, res) => {
     await newCat.save();
   } catch (err) {
     /* If something goes wrong while communicating with the database, log the error and send
-       an error message back to the client. Note that our return will return us from the setName
+       an error message back to the client. Note that our return will return us from the setCatName
        function, not just the catch statement. That means we can treat the code below the catch
        as being our "if the try worked"
     */
@@ -143,17 +165,104 @@ const setName = async (req, res) => {
      up here. We will update our lastAdded cat to the one we just added. We will then send that
      cat's data to the client.
   */
-  lastAdded = newCat;
+  lastAddedCat = newCat;
   return res.json({
-    name: lastAdded.name,
-    beds: lastAdded.bedsOwned,
+    name: lastAddedCat.name,
+    beds: lastAddedCat.bedsOwned,
+  });
+};
+
+// Function to create a new dog in the database
+const setDogName = async (req, res) => {
+  if (!req.body.firstname || !req.body.lastname || !req.body.breed || !req.body.age) {
+    // If they are missing data, send back an error.
+    return res.status(400).json({ error: 'firstname, lastname, breed and age are all required' });
+  }
+
+  const dogData = {
+    name: `${req.body.firstname} ${req.body.lastname}`,
+    breed: req.body.breed,
+    age: req.body.age,
+  };
+
+  const newDog = new Dog(dogData);
+
+  try {
+    await newDog.save();
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({ error: 'failed to create dog' });
+  }
+
+  lastAddedDog = newDog;
+  return res.json({
+    name: lastAddedDog.name,
+    breed: lastAddedDog.breed,
+    age: lastAddedDog.age,
+  });
+};
+
+/* A function for updating the last cat added to the database.
+   Usually database updates would be a more involved process, involving finding
+   the right element in the database based on query, modifying it, and updating
+   it. For this example we will just update the last one we added for simplicity.
+*/
+const updateLastCat = (req, res) => {
+  // First we will update the number of bedsOwned.
+  lastAddedCat.bedsOwned++;
+
+  /* Remember that lastAdded is a Mongoose document (made on line 14 if no new
+     ones were made after the server started, or line 116 if there was). Mongo
+     documents have an _id, which is a globally unique identifier that distinguishes
+     them from other documents. Our mongoose document also has this _id. When we
+     call .save() on a document, Mongoose and Mongo will use the _id to determine if
+     we are creating a new database entry (if the _id doesn't already exist), or
+     if we are updating an existing entry (if the _id is already in the database).
+
+     Since lastAdded is likely already in the database, .save() will update it rather
+     than make a new cat.
+
+     We can use async/await for this, or just use standard promise .then().catch() syntax.
+  */
+  const savePromise = lastAddedCat.save();
+
+  // If we successfully save/update them in the database, send back the cat's info.
+  savePromise.then(() => res.json({
+    name: lastAddedCat.name,
+    beds: lastAddedCat.bedsOwned,
+  }));
+
+  // If something goes wrong saving to the database, log the error and send a message to the client.
+  savePromise.catch((err) => {
+    console.log(err);
+    return res.status(500).json({ error: 'Something went wrong' });
+  });
+};
+
+// A function for updating the last dog added to the database.
+const updateLastDog = (req, res) => {
+  lastAddedDog.age++;
+
+  const savePromise = lastAddedDog.save();
+
+  // If we successfully save/update them in the database, send back the dog's info.
+  savePromise.then(() => res.json({
+    name: lastAddedDog.name,
+    breed: lastAddedDog.breed,
+    age: lastAddedDog.age,
+  }));
+
+  // If something goes wrong saving to the database, log the error and send a message to the client.
+  savePromise.catch((err) => {
+    console.log(err);
+    return res.status(500).json({ error: 'Something went wrong' });
   });
 };
 
 // Function to handle searching a cat by name.
-const searchName = async (req, res) => {
+const searchCatName = async (req, res) => {
   /* When the user makes a POST request, bodyParser populates req.body with the parameters
-     as we saw in setName() above. In the case of searchName, the user is making a GET request.
+     as we saw in setCatName() above. In the case of searchCatName, the user is making a GET request
      GET requests do not have a body, but they can have query parameters. bodyParser will also
      handle these, and store them in req.query instead.
 
@@ -197,41 +306,30 @@ const searchName = async (req, res) => {
   return res.json({ name: doc.name, beds: doc.bedsOwned });
 };
 
-/* A function for updating the last cat added to the database.
-   Usually database updates would be a more involved process, involving finding
-   the right element in the database based on query, modifying it, and updating
-   it. For this example we will just update the last one we added for simplicity.
-*/
-const updateLast = (req, res) => {
-  // First we will update the number of bedsOwned.
-  lastAdded.bedsOwned++;
+// Function to handle searching a dog by name.
+const searchDogName = async (req, res) => {
+  if (!req.query.name) {
+    return res.status(400).json({ error: 'Name is required to perform a search' });
+  }
 
-  /* Remember that lastAdded is a Mongoose document (made on line 14 if no new
-     ones were made after the server started, or line 116 if there was). Mongo
-     documents have an _id, which is a globally unique identifier that distinguishes
-     them from other documents. Our mongoose document also has this _id. When we
-     call .save() on a document, Mongoose and Mongo will use the _id to determine if
-     we are creating a new database entry (if the _id doesn't already exist), or
-     if we are updating an existing entry (if the _id is already in the database).
-
-     Since lastAdded is likely already in the database, .save() will update it rather
-     than make a new cat.
-
-     We can use async/await for this, or just use standard promise .then().catch() syntax.
-  */
-  const savePromise = lastAdded.save();
-
-  // If we successfully save/update them in the database, send back the cat's info.
-  savePromise.then(() => res.json({
-    name: lastAdded.name,
-    beds: lastAdded.bedsOwned,
-  }));
-
-  // If something goes wrong saving to the database, log the error and send a message to the client.
-  savePromise.catch((err) => {
+  let doc;
+  try {
+    // I borrowed formatting for incrementing from this site, though I didn't get it to work
+    // https://stackoverflow.com/questions/41444213/how-do-i-increment-a-number-value-in-mongoose
+    doc = await Dog.findOneAndUpdate({ name: req.query.name }, { $inc: { 'req.body.age': 1 } }).exec();
+  } catch (err) {
+    // If there is an error, log it and send the user an error message.
     console.log(err);
     return res.status(500).json({ error: 'Something went wrong' });
-  });
+  }
+
+  // If we do not find something that matches our search, doc will be empty.
+  if (!doc) {
+    return res.json({ error: 'No dogs found' });
+  }
+
+  // Otherwise, we got a result and will send it back to the user.
+  return res.json({ name: doc.name, breed: doc.breed, age: doc.age });
 };
 
 // A function to send back the 404 page.
@@ -247,9 +345,13 @@ module.exports = {
   page1: hostPage1,
   page2: hostPage2,
   page3: hostPage3,
+  page4: hostPage4,
   getName,
-  setName,
-  updateLast,
-  searchName,
+  setCatName,
+  setDogName,
+  updateLastCat,
+  updateLastDog,
+  searchCatName,
+  searchDogName,
   notFound,
 };
